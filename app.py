@@ -25,7 +25,7 @@ if query:
     dates_result = df_ff['DATETIME'].astype(str).tolist()
     minute_window_input = st.text_input("Adjust window for minutes ahead (default = 60min)")
 
-    def get_movement_with_timewindow(dates_result, minute_window_input):
+    def get_movement_with_timewindow(dates_result, minute_window_input=60):
         all_rows = []
         for d in dates_result:
             df_high_low = conn.query(
@@ -67,11 +67,8 @@ if query:
 
         return df
 
-    try:
-        df = df_ff[["DATETIME","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, minute_window_input))
-    except:
-        df = df_ff[["DATETIME","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, 60))
-    
+    df = df_ff[["DATETIME","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, minute_window_input))
+
     st.dataframe(df)
 
 
