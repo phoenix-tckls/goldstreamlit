@@ -14,9 +14,9 @@ df_ff = conn.query(
     ttl=600
 )
 
-query = st.text_input("Filter dataframe")
-
 st.dataframe(df_ff)
+
+query = st.text_input("Filter dataframe")
 
 if query:
     mask = df_ff.map(lambda x: query.lower() in str(x).lower()).any(axis=1)
