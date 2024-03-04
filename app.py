@@ -60,8 +60,9 @@ if query:
         df = pd.DataFrame(all_rows, columns=['DATETIME','OPEN_PRICE_AT_TIMESTAMP',f'MAX_HIGH_IN_{minute_window_input}_MIN',f'MIN_LOW_IN_{minute_window_input}_MIN'])
         df["open-high"] = abs(df['OPEN_PRICE_AT_TIMESTAMP'] - df[f'MAX_HIGH_IN_{minute_window_input}_MIN'])
         df["open-low"] = abs(df['OPEN_PRICE_AT_TIMESTAMP'] - df[f'MIN_LOW_IN_{minute_window_input}_MIN'])
-        df["LARGEST_DIFF"] = np.where(df["open-high"] > df["open-low"], df["open-high"], df["open-low"])
-        df["LARGEST_DIFF_CLASS"] = np.where(df["open-high"] > df["open-low"], "High", "Low")
+        df["LARGEST_DIFF_FROM_OPEN"] = np.where(df["open-high"] > df["open-low"], df["open-high"], df["open-low"])
+        df["LARGEST_DIFF_FROM_OPEN_CLASS"] = np.where(df["open-high"] > df["open-low"], "High", "Low")
+        df["MAX_HIGH_MIN_LOW_DIFF"] = abs(df["open-high"] - df["open-low"])
         df = df.drop(["open-high","open-low"], axis=1)
         df = df[df['DATETIME'].notna()]
 
