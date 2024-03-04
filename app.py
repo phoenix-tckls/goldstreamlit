@@ -35,7 +35,7 @@ if query:
                         min(low) as min_low_in_{minute_window_input}_min
                     from (
                         select * from gold.processed.ohlc 
-                        where datetime > '{d}'
+                        where datetime >= '{d}'
                         order by datetime 
                         limit {minute_window_input}
                     )
