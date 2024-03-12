@@ -74,9 +74,9 @@ if query:
         return df
 
     try:
-        df_ff_candlestick = df_ff[["DATETIME","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, minute_window_input))
+        df_ff_candlestick = df_ff[["DATETIME","IMPACT","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, minute_window_input))
     except:
-        df_ff_candlestick = df_ff[["DATETIME","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, 60))
+        df_ff_candlestick = df_ff[["DATETIME","IMPACT","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, 60))
     
     st.dataframe(df_ff_candlestick)
 
