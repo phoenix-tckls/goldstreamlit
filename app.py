@@ -8,25 +8,17 @@ import numpy as np
 # Initialize connection.
 conn = st.connection("snowflake")
 
-df_ff = conn.query(
+df_ff_candlestick = conn.query(
     """
-    select * from forexfactory order by datetime desc;
-    """, 
-    ttl=600
-)
-
-df_high_low = conn.query(
-    """
-    select * from gold.processed.ohlc_calcs order by datetime desc;
+    select * 
+    from gold.processed.forexfactory_ohlc_calcs
+    order by datetime desc
     """, 
     ttl=600
 )
 
 st.subheader(f'Forex Factory Events with candlestick movement calculations within 60 minutes after event', divider='blue')
-st.caption(f'Forex Factory Data: until {str(df_ff["DATETIME"][0])}')
-st.caption(f'Candlestick Data: until {str(df_high_low["DATETIME"][0])}')
 
-df_ff_candlestick = df_ff.merge(df_high_low)
 query = st.text_input("Enter filter of Forex Factory data", "")
 mask = df_ff_candlestick.map(lambda x: query.lower() in str(x).lower()).any(axis=1)
 df_ff_candlestick = df_ff_candlestick[mask]
@@ -51,11 +43,11 @@ def get_additional_calcs(event, dataframe, year_aggcalcs):
     )
     count_of_event = len(dataframe_masked)
     try:
-        pctg_of_event_largest_diff_open_15 = len(dataframe_masked[dataframe_masked["LARGEST_DIFF_FROM_OPEN"] > 15]) / count_of_event
+        pctg_of_event_largest_diff_open_15 = len(dataframe_masked[dataframe_masked["LARGEST_DIFF_FROM_OPEN"] > 15]) * 100 / count_of_event
     except:
         pctg_of_event_largest_diff_open_15 = 0
     try:
-        pctg_of_event_max_high_min_low_diff = len(dataframe_masked[dataframe_masked["MAX_HIGH_MIN_LOW_DIFF"] > 15]) / count_of_event
+        pctg_of_event_max_high_min_low_diff = len(dataframe_masked[dataframe_masked["MAX_HIGH_MIN_LOW_DIFF"] > 15]) * 100 / count_of_event
     except:
         pctg_of_event_max_high_min_low_diff = 0
     additional_calcs = [
@@ -108,8 +100,6 @@ st.data_editor(
 )
 
 
-
-
 max_candlestick = conn.query(f"select max(datetime) as max_datetime from gold.processed.ohlc", ttl=600)["MAX_DATETIME"][0]
 st.subheader(f'Candlestick data (until {max_candlestick})', divider='blue')
 dates_for_ohlc_1 = st.text_input("Input start date range for candlestick data [YYYY-MM-DD]")
@@ -138,48 +128,21 @@ st.plotly_chart(fig)
 
 
 
+
+
+
 st.subheader('Swing over time (per 60 minutes)', divider='blue')
 df_ohlc = conn.query(
     """
-        WITH temp as (
-            SELECT datetime, open as open_price_at_timestamp, high, low
-            FROM gold.processed.ohlc
-            ORDER BY 1
-        ),
-        min_max_calc as (
-            SELECT 
-                datetime, 
-                open_price_at_timestamp,
-                MAX(high) OVER (ORDER BY datetime ROWS BETWEEN CURRENT ROW AND 59 FOLLOWING) AS max_high_in_60_min,
-                MIN(low) OVER (ORDER BY datetime ROWS BETWEEN CURRENT ROW AND 59 FOLLOWING) AS min_low_in_60_min
-            FROM temp
-            ORDER BY datetime
-        )
-        SELECT
-            datetime as hourly_timestamp,
-            ROUND(ABS(open_price_at_timestamp - max_high_in_60_min), 3) AS diff_open_maxhigh,
-            ROUND(ABS(open_price_at_timestamp - min_low_in_60_min), 3) AS diff_open_minlow,
-            CASE
-                WHEN diff_open_maxhigh > diff_open_minlow
-                THEN diff_open_maxhigh
-                ELSE diff_open_minlow
-            END AS largest_diff_from_open,
-            CASE
-                WHEN diff_open_maxhigh > diff_open_minlow
-                THEN 'High'
-                ELSE 'Low'
-            END AS largest_diff_from_open_class,
-            ROUND(max_high_in_60_min - min_low_in_60_min, 3) AS max_high_min_low_diff 
-        FROM min_max_calc
-        WHERE MINUTE(datetime) = 0
+    select * from gold.processed.ohlc_calcs
+    where minute(datetime) = 0
     """, 
     ttl=600
 )
 
 
-fig2 = px.line(df_ohlc, x="HOURLY_TIMESTAMP", y="MAX_HIGH_MIN_LOW_DIFF", title='Difference b/w max high & min low')
+fig2 = px.line(df_ohlc, x="DATETIME", y="MAX_HIGH_MIN_LOW_DIFF", title='Difference b/w max high & min low')
 st.plotly_chart(fig2)
 
-fig3 = px.line(df_ohlc, x="HOURLY_TIMESTAMP", y="LARGEST_DIFF_FROM_OPEN", title='Largest Difference from open (could be max high or min low)')
+fig3 = px.line(df_ohlc, x="DATETIME", y="LARGEST_DIFF_FROM_OPEN", title='Largest Difference from open (could be max high or min low)')
 st.plotly_chart(fig3)
-
