@@ -15,77 +15,96 @@ df_ff = conn.query(
     ttl=600
 )
 
-st.subheader(f'Forex Factory Data (until {str(df_ff["DATETIME"][0])})', divider='blue')
-st.dataframe(df_ff)
+df_high_low = conn.query(
+    """
+    select * from gold.processed.ohlc_calcs order by datetime desc;
+    """
+)
 
+st.subheader(f'Forex Factory Events with candlestick movement calculations within 60 minutes after event', divider='blue')
+st.caption(f'Forex Factory Data: until {str(df_ff["DATETIME"][0])}')
+st.caption(f'Candlestick Data: until {str(df_high_low["DATETIME"][0])}')
 
-st.subheader(f'Candlestick calcs upon Forex Factory data', divider='blue')
-query = st.text_input("Enter filter of Forex Factory data")
+df_ff_candlestick = df_ff.merge(df_high_low)
+query = st.text_input("Enter filter of Forex Factory data", "")
+mask = df_ff_candlestick.map(lambda x: query.lower() in str(x).lower()).any(axis=1)
+df_ff_candlestick = df_ff_candlestick[mask]
+st.dataframe(df_ff_candlestick)
 
-if query:
-    mask = df_ff.map(lambda x: query.lower() in str(x).lower()).any(axis=1)
-    df_ff = df_ff[mask]
-
-    dates_result = df_ff['DATETIME'].astype(str).tolist()
-    # minute_window_input = st.text_input("Adjust window for minutes ahead (default = 60min)")
-    minute_window_input = 60
-
-    def get_movement_with_timewindow(dates_result, minute_window_input=60):
-        all_rows = []
-        for d in dates_result:
-            df_high_low = conn.query(
-                f"""
-                    select 
-                        max(high) as max_high_in_{minute_window_input}_min,
-                        min(low) as min_low_in_{minute_window_input}_min
-                    from (
-                        select * from gold.processed.ohlc 
-                        where datetime >= '{d}'
-                        order by datetime 
-                        limit {minute_window_input}
-                    )
-                """, 
-                ttl=600
-            )
-
-            df_open = conn.query(
-                f"""
-                    select 
-                        datetime, 
-                        open as open_price_at_timestamp
-                    from gold.processed.ohlc 
-                    where datetime = '{d}'
-                """, 
-                ttl=600
-            )
-
-            data = pd.concat([df_open,df_high_low], axis=1).iloc[0].tolist()
-            all_rows.append(data)
-
-        df = pd.DataFrame(all_rows, columns=['DATETIME','OPEN_PRICE_AT_TIMESTAMP',f'MAX_HIGH_IN_{minute_window_input}_MIN',f'MIN_LOW_IN_{minute_window_input}_MIN'])
-        df["open-high"] = abs(df['OPEN_PRICE_AT_TIMESTAMP'] - df[f'MAX_HIGH_IN_{minute_window_input}_MIN'])
-        df["open-low"] = abs(df['OPEN_PRICE_AT_TIMESTAMP'] - df[f'MIN_LOW_IN_{minute_window_input}_MIN'])
-        df["LARGEST_DIFF_FROM_OPEN"] = np.where(df["open-high"] > df["open-low"], df["open-high"], df["open-low"])
-        df["LARGEST_DIFF_FROM_OPEN_CLASS"] = np.where(df["open-high"] > df["open-low"], "High", "Low")
-        df["MAX_HIGH_MIN_LOW_DIFF"] = abs(df[f'MAX_HIGH_IN_{minute_window_input}_MIN'] - df[f'MIN_LOW_IN_{minute_window_input}_MIN'])
-        df = df.drop(["open-high","open-low"], axis=1)
-        df = df[df['DATETIME'].notna()]
-
-        return df
-
+def get_additional_calcs(event, dataframe, year_aggcalcs):
+    dataframe_masked = dataframe[dataframe["DESCRIPTION"] == event]
+    dataframe_masked = dataframe_masked[dataframe_masked["DATETIME"].dt.year >= int(year_aggcalcs)]
+    bins = [0, 5, 10, 15, 20, 25, 100]
+    categories = ['(0, 5]','(5, 10]','(10, 15]','(15, 20]','(20, 25]','(25, 100]']
+    dataframe_masked['LARGEST_DIFF_FROM_OPEN_BINNED'] = pd.cut(dataframe_masked['LARGEST_DIFF_FROM_OPEN'], bins).astype(str)
+    dataframe_masked['LARGEST_DIFF_FROM_OPEN_BINNED'] = pd.Categorical(
+        dataframe_masked['LARGEST_DIFF_FROM_OPEN_BINNED'], 
+        categories, 
+        ordered=True
+    )
+    dataframe_masked['MAX_HIGH_MIN_LOW_DIFF_BINNED'] = pd.cut(dataframe_masked['MAX_HIGH_MIN_LOW_DIFF'], bins).astype(str)
+    dataframe_masked['MAX_HIGH_MIN_LOW_DIFF_BINNED'] = pd.Categorical(
+        dataframe_masked['MAX_HIGH_MIN_LOW_DIFF_BINNED'], 
+        categories, 
+        ordered=True
+    )
+    count_of_event = len(dataframe_masked)
     try:
-        df_ff_candlestick = df_ff[["DATETIME","IMPACT","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, minute_window_input))
+        pctg_of_event_largest_diff_open_15 = len(dataframe_masked[dataframe_masked["LARGEST_DIFF_FROM_OPEN"] > 15]) / count_of_event
     except:
-        df_ff_candlestick = df_ff[["DATETIME","IMPACT","DESCRIPTION","ACTUAL","FORECAST","PREVIOUS"]].merge(get_movement_with_timewindow(dates_result, 60))
-    
-    st.dataframe(df_ff_candlestick)
+        pctg_of_event_largest_diff_open_15 = 0
+    try:
+        pctg_of_event_max_high_min_low_diff = len(dataframe_masked[dataframe_masked["MAX_HIGH_MIN_LOW_DIFF"] > 15]) / count_of_event
+    except:
+        pctg_of_event_max_high_min_low_diff = 0
+    additional_calcs = [
+        dataframe_masked["LARGEST_DIFF_FROM_OPEN"].mean(),
+        dataframe_masked["LARGEST_DIFF_FROM_OPEN"].max(),
+        dataframe_masked["MAX_HIGH_MIN_LOW_DIFF"].mean(),
+        dataframe_masked["MAX_HIGH_MIN_LOW_DIFF"].max(),
+        count_of_event,
+        pctg_of_event_largest_diff_open_15,
+        pctg_of_event_max_high_min_low_diff,
+        dataframe_masked.groupby('LARGEST_DIFF_FROM_OPEN_BINNED').size().tolist(),
+        dataframe_masked.groupby('MAX_HIGH_MIN_LOW_DIFF_BINNED').size().tolist()
+    ]
+    return additional_calcs
 
-    st.text(f"Aggregation calcs for {query} event (from 2012 data onwards):")
-    st.write("Average Largest Diff from open price:",df_ff_candlestick[df_ff_candlestick["DATETIME"].dt.year >= 2012]["LARGEST_DIFF_FROM_OPEN"].mean())
-    st.write("Maxiumum Largest Diff from open price:",df_ff_candlestick[df_ff_candlestick["DATETIME"].dt.year >= 2012]["LARGEST_DIFF_FROM_OPEN"].max())
-    st.write("Average 'Max High-Min Low' Diff:",df_ff_candlestick[df_ff_candlestick["DATETIME"].dt.year >= 2012]["MAX_HIGH_MIN_LOW_DIFF"].mean())
-    st.write("Maximum 'Max High-Min Low' Diff:",df_ff_candlestick[df_ff_candlestick["DATETIME"].dt.year >= 2012]["MAX_HIGH_MIN_LOW_DIFF"].max())
 
+st.subheader('Aggregate calculations for each Forex Factory event', divider='blue')
+year_aggcalcs = st.text_input("Enter year of candlestick data to calculate aggregates from", '2012')
+
+all_unique_events_additional_calcs = []
+for event in df_ff_candlestick["DESCRIPTION"].unique():
+     all_unique_events_additional_calcs.append([event] + get_additional_calcs(event, df_ff_candlestick, year_aggcalcs))
+all_unique_events_additional_calcs = pd.DataFrame(all_unique_events_additional_calcs)
+all_unique_events_additional_calcs.columns = [
+    'DESCRIPTION',
+    'LARGEST_DIFF_FROM_OPEN_MEAN',
+    'LARGEST_DIFF_FROM_OPEN_MAX',
+    'MAX_HIGH_MIN_LOW_DIFF_MEAN',
+    'MAX_HIGH_MIN_LOW_DIFF_MAX',
+    'COUNT_OF_EVENT',
+    'PCTG_OF_EVENT_LARGEST_DIFF_FROM_OPEN_>15',
+    'PCTG_OF_EVENT_MAX_HIGH_MIN_LOW_DIFF_>15',
+    'LARGEST_DIFF_FROM_OPEN_DISTRIBUTION_BUCKETS_OF_5',
+    'MAX_HIGH_MIN_LOW_DIFF_DISTRIBUTION_BUCKETS_OF_5'
+]
+all_unique_events_additional_calcs['PCTG_OF_EVENT_LARGEST_DIFF_FROM_OPEN_>15'] = all_unique_events_additional_calcs['PCTG_OF_EVENT_LARGEST_DIFF_FROM_OPEN_>15'].map("{:,.3f}%".format)
+all_unique_events_additional_calcs['PCTG_OF_EVENT_MAX_HIGH_MIN_LOW_DIFF_>15'] = all_unique_events_additional_calcs['PCTG_OF_EVENT_MAX_HIGH_MIN_LOW_DIFF_>15'].map("{:,.3f}%".format)
+mask = all_unique_events_additional_calcs.map(lambda x: query.lower() in str(x).lower()).any(axis=1)
+all_unique_events_additional_calcs = all_unique_events_additional_calcs[mask]
+st.data_editor(
+    all_unique_events_additional_calcs,
+    column_config={
+        'LARGEST_DIFF_FROM_OPEN_DISTRIBUTION_BUCKETS_OF_5': st.column_config.BarChartColumn(
+            "LARGEST_DIFF_FROM_OPEN_DISTRIBUTION_BUCKETS_OF_5"
+        ),
+        'MAX_HIGH_MIN_LOW_DIFF_DISTRIBUTION_BUCKETS_OF_5': st.column_config.BarChartColumn(
+            "MAX_HIGH_MIN_LOW_DIFF_DISTRIBUTION_BUCKETS_OF_5"
+        ),
+    }
+)
 
 
 
