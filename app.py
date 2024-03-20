@@ -18,7 +18,8 @@ df_ff = conn.query(
 df_high_low = conn.query(
     """
     select * from gold.processed.ohlc_calcs order by datetime desc;
-    """
+    """, 
+    ttl=600
 )
 
 st.subheader(f'Forex Factory Events with candlestick movement calculations within 60 minutes after event', divider='blue')
